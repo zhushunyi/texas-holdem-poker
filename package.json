@@ -1,0 +1,15 @@
+{
+  "name": "poker-game",
+  "version": "1.0.0",
+  "description": "多人在线德州扑克（Texas Hold'em Poker） - Node.js + Express + Socket.io",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "nanoid": "^5.1.2",
+    "socket.io": "^4.7.5"
+  }
+}

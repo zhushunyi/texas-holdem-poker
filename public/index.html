@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>多人在线德州扑克 | Texas Hold'em</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="bg">
+    <div class="grain"></div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand__logo">♠</div>
+      <div class="brand__text">
+        <div class="brand__title">Texas Hold'em</div>
+        <div class="brand__sub">多人在线实时对战 · Node.js + Socket.io</div>
+      </div>
+    </div>
+
+    <div class="status">
+      <div class="pill" id="connPill">连接中…</div>
+      <div class="pill pill--ghost" id="userPill">未登录</div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Lobby -->
+    <section class="panel lobby" id="lobbyView">
+      <div class="panel__header">
+        <h2>大厅</h2>
+        <p>输入昵称后创建/加入房间，即可开始对战。</p>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h3>你的信息</h3>
+          <div class="field">
+            <label>昵称</label>
+            <input id="nicknameInput" maxlength="16" placeholder="例如：小明" />
+          </div>
+
+          <div class="hint">提示：同一浏览器可开多个标签页模拟多人。</div>
+        </div>
+
+        <div class="card">
+          <h3>创建房间</h3>
+          <div class="field">
+            <label>房间名</label>
+            <input id="roomNameInput" maxlength="24" placeholder="例如：欢乐德扑 20/10" />
+          </div>
+          <button class="btn btn--primary" id="createRoomBtn">创建并加入</button>
+          <div class="subhint">房间默认 6 人桌，起始筹码 2000，小盲/大盲 10/20，房主满 2 人即可开始。</div>
+        </div>
+
+        <div class="card card--wide">
+          <div class="card__row">
+            <h3>房间列表</h3>
+            <button class="btn btn--ghost" id="refreshRoomsBtn">刷新</button>
+          </div>
+          <div class="roomList" id="roomList"></div>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <div class="footer__left">
+          <span class="muted">规则：</span>
+          <span>盲注、翻牌前/翻牌/转牌/河牌、下注/加注/跟注/弃牌/全押、标准牌型判断。</span>
+        </div>
+        <div class="footer__right muted">Made in AIME Workspace</div>
+      </footer>
+    </section>
+
+    <!-- Room / Game -->
+    <section class="room" id="roomView" style="display:none;">
+      <div class="roomTop">
+        <div class="roomTop__left">
+          <button class="btn btn--ghost" id="backToLobbyBtn">← 返回大厅</button>
+          <div class="roomMeta">
+            <div class="roomMeta__title" id="roomTitle">房间</div>
+            <div class="roomMeta__sub" id="roomSub">等待中…</div>
+          </div>
+        </div>
+
+        <div class="roomTop__right">
+          <button class="btn btn--primary" id="startHandBtn">开始一手（2人即可）</button>
+        </div>
+      </div>
+
+      <div class="tableWrap">
+        <div class="table">
+          <div class="table__felt"></div>
+          <div class="table__glow"></div>
+
+          <div class="center">
+            <div class="center__row">
+              <div class="stage" id="stageLabel">等待开始</div>
+              <div class="pot" id="potLabel">底池 0</div>
+            </div>
+            <div class="turnTimer" id="turnTimer" style="display:none;">
+              <div class="turnTimer__top">
+                <span id="turnTimerLabel">行动倒计时</span>
+                <span id="turnTimerValue">—</span>
+              </div>
+              <div class="turnTimer__track">
+                <div class="turnTimer__bar" id="turnTimerBar"></div>
+              </div>
+            </div>
+            <div class="board" id="board"></div>
+            <div class="pots" id="pots" style="display:none;"></div>
+            <div class="log" id="log"></div>
+          </div>
+
+          <div class="seats" id="seats"></div>
+
+          <div class="you" id="youArea">
+            <div class="you__row">
+              <div class="you__title">你的手牌</div>
+              <div class="you__meta" id="youMeta">—</div>
+            </div>
+            <div class="hand" id="youHand"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actionBar" id="actionBar">
+        <div class="actionBar__info">
+          <div class="infoLine"><span class="muted">需跟注：</span><span id="toCall">0</span></div>
+          <div class="infoLine"><span class="muted">当前下注：</span><span id="currentBet">0</span></div>
+          <div class="infoLine"><span class="muted">你筹码：</span><span id="youChips">0</span></div>
+        </div>
+
+        <div class="actionBar__controls">
+          <div class="betBox" id="betBox" style="display:none;">
+            <div class="betBox__row">
+              <span class="muted">加注到</span>
+              <input id="raiseToInput" type="number" min="0" step="10" />
+            </div>
+            <input id="raiseToRange" type="range" min="0" max="0" step="10" />
+          </div>
+
+          <div class="btnRow" id="btnRow"></div>
+        </div>
+      </div>
+
+      <div class="toast" id="toast"></div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
