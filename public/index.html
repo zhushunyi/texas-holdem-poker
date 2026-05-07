@@ -58,6 +58,16 @@
           <div class="subhint">房间默认 6 人桌，起始筹码 2000，小盲/大盲 10/20，房主满 2 人即可开始。</div>
         </div>
 
+        <div class="card">
+          <h3>加入房间</h3>
+          <div class="field">
+            <label>房间ID</label>
+            <input id="joinRoomIdInput" maxlength="24" placeholder="粘贴房间ID（如 eRP6FPRR）" />
+          </div>
+          <button class="btn btn--primary" id="joinRoomBtn">加入房间</button>
+          <div class="subhint">朋友创建房间后，把房间ID发给你，输入即可加入。</div>
+        </div>
+
         <div class="card card--wide">
           <div class="card__row">
             <h3>房间列表</h3>
@@ -88,6 +98,7 @@
         </div>
 
         <div class="roomTop__right">
+          <button class="btn btn--ghost" id="copyRoomIdBtn">复制房间ID</button>
           <button class="btn btn--primary" id="startHandBtn">开始一手（2人即可）</button>
         </div>
       </div>

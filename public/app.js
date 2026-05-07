@@ -13,10 +13,13 @@ const nicknameInput = document.getElementById('nicknameInput');
 const roomNameInput = document.getElementById('roomNameInput');
 const createRoomBtn = document.getElementById('createRoomBtn');
 const refreshRoomsBtn = document.getElementById('refreshRoomsBtn');
+const joinRoomIdInput = document.getElementById('joinRoomIdInput');
+const joinRoomBtn = document.getElementById('joinRoomBtn');
 const roomListEl = document.getElementById('roomList');
 
 const backToLobbyBtn = document.getElementById('backToLobbyBtn');
 const startHandBtn = document.getElementById('startHandBtn');
+const copyRoomIdBtn = document.getElementById('copyRoomIdBtn');
 const roomTitle = document.getElementById('roomTitle');
 const roomSub = document.getElementById('roomSub');
 
@@ -581,9 +584,30 @@ refreshRoomsBtn.addEventListener('click', () => {
   socket.emit('lobby:join');
 });
 
+joinRoomBtn.addEventListener('click', () => {
+  const nickname = ensureNickname();
+  if (!nickname) return;
+  const roomId = String(joinRoomIdInput.value || '').trim();
+  if (!roomId) {
+    showToast('请输入房间ID');
+    joinRoomIdInput.focus();
+    return;
+  }
+  socket.emit('room:join', { nickname, roomId });
+});
+
 backToLobbyBtn.addEventListener('click', () => {
   socket.emit('room:leave');
   switchToLobby();
+});
+
+copyRoomIdBtn.addEventListener('click', () => {
+  if (!currentRoomId) return;
+  navigator.clipboard.writeText(currentRoomId).then(() => {
+    showToast(`房间ID已复制：${currentRoomId}`);
+  }).catch(() => {
+    showToast(`房间ID：${currentRoomId}`);
+  });
 });
 
 startHandBtn.addEventListener('click', () => {
