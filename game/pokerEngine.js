@@ -55,6 +55,7 @@ class PokerEngine {
     this.actionLog = [];
     this._derivedStateCache = null;
     this.revealAllHoleCards = false;
+    this.runoutPending = false; // all-in runout 逐步发牌标志
 
     this._resetBettingRound();
   }
@@ -242,6 +243,7 @@ class PokerEngine {
     this.lastRaiseSize = this.bigBlind;
     this.actionLog = [];
     this.revealAllHoleCards = false;
+    this.runoutPending = false;
 
     // 移动庄位
     const nextDealer = this._findNextSeat(this.dealerIndex, (p) => p && p.status !== 'out');
@@ -699,7 +701,9 @@ class PokerEngine {
 
     if (this._isBettingRoundComplete()) {
       if (allInShowdown) {
+        // 标记待 runout，由服务端 interval 逐步发牌
         this.turnIndex = -1;
+        this.runoutPending = true;
         return { allInRunout: true };
       }
       this._advanceStage();
@@ -757,7 +761,13 @@ class PokerEngine {
   }
 
   runOneMoreCommunityCard() {
-    return this._dealNextCommunityCards();
+    const result = this._dealNextCommunityCards();
+    if (result.done) {
+      this.runoutPending = false;
+    } else {
+      this.runoutPending = true; // 还有牌要发，保持标志
+    }
+    return result;
   }
 
   _runoutToShowdownInstant() {

@@ -9,6 +9,7 @@ const { PokerEngine } = require('./game/pokerEngine');
 const PORT = process.env.PORT || 3000;
 const TURN_DURATION_MS = 30 * 1000;
 const ALL_IN_RUNOUT_DELAY_MS = 1500;
+const ALL_IN_RUNOUT_INTERVAL_MS = 1500;
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -51,37 +52,30 @@ function clearRoomAllInRunoutTimer(room) {
   }
 }
 
-function scheduleAllInRunout(room) {
-  // 防止重复调度
-  if (!room || !room.engine || room.allInRunoutTimer) return;
-  // 必须是 in_hand 且所有人 all-in（不要求 turnIndex===-1，因为发牌过程中可能刚重置）
-  if (!room.engine._isAllInShowdown() || room.engine.status !== 'in_hand') return;
-
-  clearRoomTurnTimer(room);
-
-  function runNextStep() {
-    const currentRoom = rooms.get(room.id);
-    if (!currentRoom || !currentRoom.engine) return;
-    if (!currentRoom.engine._isAllInShowdown() || currentRoom.engine.status !== 'in_hand') {
-      currentRoom.allInRunoutTimer = null;
-      return;
+// 全局 all-in runout 处理：用 interval 每隔 ALL_IN_RUNOUT_INTERVAL_MS 扫一次所有房间
+// 对每个 runoutPending=true 的房间，发一张牌并广播
+// 用 lastRunoutAt 节流：同一个房间两次 runout 之间至少间隔 ALL_IN_RUNOUT_INTERVAL_MS
+setInterval(() => {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    if (!room.engine || !room.engine.runoutPending) continue;
+    if (room.engine.status !== 'in_hand') {
+      room.engine.runoutPending = false;
+      continue;
     }
+    // 节流：上次发牌后需等待足够时间
+    if (room.lastRunoutAt && now - room.lastRunoutAt < ALL_IN_RUNOUT_INTERVAL_MS - 50) continue;
 
-    const { done } = currentRoom.engine.runOneMoreCommunityCard();
-    broadcastRoomState(currentRoom);
-    emitRoomList();
-
-    if (done) {
-      currentRoom.allInRunoutTimer = null;
-      return;
+    room.lastRunoutAt = now;
+    try {
+      room.engine.runOneMoreCommunityCard();
+      broadcastRoomState(room);
+      emitRoomList();
+    } catch (e) {
+      room.engine.runoutPending = false;
     }
-
-    // 继续调度下一张，用新的 timer 引用
-    currentRoom.allInRunoutTimer = setTimeout(runNextStep, ALL_IN_RUNOUT_DELAY_MS);
   }
-
-  room.allInRunoutTimer = setTimeout(runNextStep, ALL_IN_RUNOUT_DELAY_MS);
-}
+}, ALL_IN_RUNOUT_INTERVAL_MS);
 
 function syncRoomTurnTimer(room) {
   if (!room || !room.engine) {
@@ -180,6 +174,7 @@ io.on('connection', (socket) => {
         allInRunoutTimer: null,
         turnDeadlineAt: 0,
         turnTimerKey: '',
+        lastRunoutAt: 0,
       };
       rooms.set(roomId, room);
 
@@ -314,13 +309,7 @@ function broadcastRoomState(room) {
   const engine = room.engine;
 
   syncRoomTurnTimer(room);
-  // 只在没有 runout timer 在跑时才检查是否需要启动
-  // 已经在跑的 runout 是自驱动的，不需要在这里再次触发
-  if (!room.allInRunoutTimer) {
-    if (engine._isAllInShowdown() && engine.status === 'in_hand') {
-      scheduleAllInRunout(room);
-    }
-  }
+  // runout 由全局 interval 驱动，无需在此调度
 
   // 给每个玩家单独发一份“可见状态”（隐藏他人手牌）
   const socketsInRoom = io.sockets.adapter.rooms.get(`room:${roomId}`);
