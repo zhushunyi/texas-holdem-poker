@@ -52,19 +52,35 @@ function clearRoomAllInRunoutTimer(room) {
 }
 
 function scheduleAllInRunout(room) {
-  if (!room || !room.engine || room.allInRunoutTimer || !room.engine.needsRunout()) return;
+  // 防止重复调度
+  if (!room || !room.engine || room.allInRunoutTimer) return;
+  // 必须是 in_hand 且所有人 all-in（不要求 turnIndex===-1，因为发牌过程中可能刚重置）
+  if (!room.engine._isAllInShowdown() || room.engine.status !== 'in_hand') return;
 
   clearRoomTurnTimer(room);
-  room.allInRunoutTimer = setTimeout(() => {
-    room.allInRunoutTimer = null;
 
+  function runNextStep() {
     const currentRoom = rooms.get(room.id);
-    if (!currentRoom || !currentRoom.engine || !currentRoom.engine.needsRunout()) return;
+    if (!currentRoom || !currentRoom.engine) return;
+    if (!currentRoom.engine._isAllInShowdown() || currentRoom.engine.status !== 'in_hand') {
+      currentRoom.allInRunoutTimer = null;
+      return;
+    }
 
-    currentRoom.engine.runOneMoreCommunityCard();
+    const { done } = currentRoom.engine.runOneMoreCommunityCard();
     broadcastRoomState(currentRoom);
     emitRoomList();
-  }, ALL_IN_RUNOUT_DELAY_MS);
+
+    if (done) {
+      currentRoom.allInRunoutTimer = null;
+      return;
+    }
+
+    // 继续调度下一张，用新的 timer 引用
+    currentRoom.allInRunoutTimer = setTimeout(runNextStep, ALL_IN_RUNOUT_DELAY_MS);
+  }
+
+  room.allInRunoutTimer = setTimeout(runNextStep, ALL_IN_RUNOUT_DELAY_MS);
 }
 
 function syncRoomTurnTimer(room) {
@@ -298,10 +314,12 @@ function broadcastRoomState(room) {
   const engine = room.engine;
 
   syncRoomTurnTimer(room);
-  if (engine.needsRunout()) {
-    scheduleAllInRunout(room);
-  } else {
-    clearRoomAllInRunoutTimer(room);
+  // 只在没有 runout timer 在跑时才检查是否需要启动
+  // 已经在跑的 runout 是自驱动的，不需要在这里再次触发
+  if (!room.allInRunoutTimer) {
+    if (engine._isAllInShowdown() && engine.status === 'in_hand') {
+      scheduleAllInRunout(room);
+    }
   }
 
   // 给每个玩家单独发一份“可见状态”（隐藏他人手牌）
