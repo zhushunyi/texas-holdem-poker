@@ -292,7 +292,11 @@ h3{ margin: 0 0 10px; font-size: 16px; }
   justify-content:space-between;
   padding: 8px;
   transform-origin: center;
-  animation: pop .22s ease both;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.cardFace.card--deal-enter{
+  opacity: 0;
+  transform: translateY(-30px) scale(0.85);
 }
 .cardFace--hidden{
   background: linear-gradient(135deg, rgba(139,92,246,.35), rgba(6,182,212,.18));
@@ -303,11 +307,6 @@ h3{ margin: 0 0 10px; font-size: 16px; }
 .cardFace.red{ color: rgba(255,255,255,.92); }
 .cardFace.red .mid, .cardFace.red .s{ color: #ff6b6b; }
 .cardFace.black .mid, .cardFace.black .s{ color: #e5e7eb; }
-
-@keyframes pop{
-  from{ transform: translateY(6px) scale(.98); opacity:0; }
-  to{ transform: translateY(0px) scale(1); opacity:1; }
-}
 
 .seats{ position:absolute; inset:0; z-index: 5; }
 .seat{
@@ -357,6 +356,14 @@ h3{ margin: 0 0 10px; font-size: 16px; }
   background: rgba(245,158,11,.12);
   color: rgba(255,255,255,.88);
   font-size: 12px;
+}
+.seat__hole{
+  display:flex;
+  gap:3px;
+  margin-top: 4px;
+  justify-content: center;
+  transform: scale(0.7);
+  transform-origin: top center;
 }
 
 .you{

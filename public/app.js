@@ -56,6 +56,10 @@ let currentRoomName = '';
 let mySeatIndex = -1;
 let lastState = null;
 let turnTicker = null;
+let boardDealTimers = [];
+let youDealTimers = [];
+let lastCommunityKey = '';
+let lastYouHandKey = '';
 
 nicknameInput.value = myNickname;
 
@@ -84,11 +88,25 @@ function ensureNickname() {
   return myNickname;
 }
 
+function clearDealTimers(timerStore) {
+  for (const timerId of timerStore) clearTimeout(timerId);
+  timerStore.length = 0;
+}
+
+function resetDealAnimationState() {
+  clearDealTimers(boardDealTimers);
+  clearDealTimers(youDealTimers);
+  lastCommunityKey = '';
+  lastYouHandKey = '';
+  lastState = null;
+}
+
 function switchToLobby() {
   currentRoomId = '';
   currentRoomName = '';
   mySeatIndex = -1;
   lastState = null;
+  resetDealAnimationState();
   stopTurnTicker();
   updateTurnTimerDisplay(null);
 
@@ -195,19 +213,66 @@ function renderCard(card) {
   return el;
 }
 
-function renderBoard(community) {
-  boardEl.innerHTML = '';
-  const arr = community || [];
-  for (const card of arr) {
-    boardEl.appendChild(renderCard(card));
+function cardSignature(card) {
+  if (!card) return 'empty';
+  if (card.hidden) return 'hidden';
+  return `${card.rank || ''}${card.suit || ''}`;
+}
+
+function cardsSignature(cards) {
+  return (cards || []).map(cardSignature).join('|');
+}
+
+function getSharedCardPrefixLength(previousCards, nextCards) {
+  const prev = previousCards || [];
+  const next = nextCards || [];
+  const limit = Math.min(prev.length, next.length);
+  let index = 0;
+  while (index < limit && cardSignature(prev[index]) === cardSignature(next[index])) {
+    index += 1;
   }
-  for (let index = arr.length; index < 5; index++) {
+  return index;
+}
+
+function hasVisibleHoleCards(cards) {
+  return Array.isArray(cards) && cards.length > 0 && cards.every((card) => card && !card.hidden);
+}
+
+function appendCardWithDealAnimation(container, card, index, animate, timerStore) {
+  const cardEl = renderCard(card);
+  if (animate) {
+    cardEl.classList.add('card--deal-enter');
+    timerStore.push(setTimeout(() => {
+      requestAnimationFrame(() => cardEl.classList.remove('card--deal-enter'));
+    }, index * 150));
+  }
+  container.appendChild(cardEl);
+}
+
+function renderBoard(community) {
+  const cards = community || [];
+  const previousCards = lastState && Array.isArray(lastState.community) ? lastState.community : [];
+  const nextKey = cardsSignature(cards);
+  const prefixLength = getSharedCardPrefixLength(previousCards, cards);
+  const shouldAnimate = nextKey !== lastCommunityKey;
+
+  clearDealTimers(boardDealTimers);
+  boardEl.innerHTML = '';
+
+  cards.forEach((card, index) => {
+    const animate = shouldAnimate && index >= prefixLength && !card.hidden;
+    appendCardWithDealAnimation(boardEl, card, index - prefixLength, animate, boardDealTimers);
+  });
+
+  for (let index = cards.length; index < 5; index++) {
     const placeholder = document.createElement('div');
     placeholder.className = 'cardFace';
     placeholder.style.opacity = '0.22';
     placeholder.innerHTML = `<div class="r">&nbsp;</div><div class="mid">+</div><div class="s">&nbsp;</div>`;
     boardEl.appendChild(placeholder);
   }
+
+  lastCommunityKey = nextKey;
 }
 
 function seatPositions(maxPlayers) {
@@ -293,6 +358,15 @@ function renderSeats(state) {
       <div class="seat__badges">${badges.join('')}</div>
     `;
 
+    if (hasVisibleHoleCards(player.hole)) {
+      const holeEl = document.createElement('div');
+      holeEl.className = 'seat__hole';
+      player.hole.forEach((card) => {
+        holeEl.appendChild(renderCard(card));
+      });
+      seat.appendChild(holeEl);
+    }
+
     seatsEl.appendChild(seat);
   }
 }
@@ -327,18 +401,32 @@ function renderPots(state) {
 function renderYou(state) {
   if (!state.you) {
     youMeta.textContent = '—';
+    clearDealTimers(youDealTimers);
     youHand.innerHTML = '';
+    lastYouHandKey = '';
     return;
   }
 
   const me = state.players[state.you.seatIndex];
+  const hand = me && Array.isArray(me.hole) ? me.hole : [];
   const winRateText = Number.isFinite(state.you.winRate) ? ` · 胜率 ${formatPercent(state.you.winRate)}` : '';
+  const nextHandKey = cardsSignature(hand);
+  const previousHand = lastState && lastState.players && lastState.players[state.you.seatIndex]
+    ? lastState.players[state.you.seatIndex].hole || []
+    : [];
+  const prefixLength = getSharedCardPrefixLength(previousHand, hand);
+  const shouldAnimate = hand.length > 0 && nextHandKey !== lastYouHandKey;
+
   youMeta.textContent = `座位 #${state.you.seatIndex + 1} · 状态 ${state.you.status} · 需跟注 ${state.you.toCall}${winRateText}`;
 
+  clearDealTimers(youDealTimers);
   youHand.innerHTML = '';
-  if (me && me.hole) {
-    for (const card of me.hole) youHand.appendChild(renderCard(card));
-  }
+  hand.forEach((card, index) => {
+    const animate = shouldAnimate && index >= prefixLength && !card.hidden;
+    appendCardWithDealAnimation(youHand, card, index - prefixLength, animate, youDealTimers);
+  });
+
+  lastYouHandKey = nextHandKey;
 }
 
 function renderLog(state) {
@@ -490,7 +578,6 @@ function renderActions(state) {
 }
 
 function renderState(state) {
-  lastState = state;
   roomTitle.textContent = `${state.roomName || currentRoomName} · ${state.roomId || currentRoomId}`;
 
   renderTopLabels(state);
@@ -501,6 +588,7 @@ function renderState(state) {
   renderLog(state);
   renderActions(state);
   syncTurnTicker(state);
+  lastState = state;
 }
 
 function renderRoomList(rooms) {
@@ -557,6 +645,7 @@ socket.on('room:joined', (info) => {
   currentRoomId = info.roomId;
   mySeatIndex = info.seatIndex;
   currentRoomName = info.roomName;
+  resetDealAnimationState();
   switchToRoom();
   showToast(info.isHost ? '你是房主，满 2 人即可开始' : '已加入房间');
 });

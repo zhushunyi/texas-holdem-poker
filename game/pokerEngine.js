@@ -54,6 +54,7 @@ class PokerEngine {
 
     this.actionLog = [];
     this._derivedStateCache = null;
+    this.revealAllHoleCards = false;
 
     this._resetBettingRound();
   }
@@ -148,6 +149,12 @@ class PokerEngine {
     return this.players.filter((p) => p && (p.status === 'active' || p.status === 'allin'));
   }
 
+  _isAllInShowdown() {
+    if (this.status !== 'in_hand') return false;
+    const activePlayers = this.players.filter((player) => player && (player.status === 'active' || player.status === 'allin'));
+    return activePlayers.length >= 2 && activePlayers.every((player) => player.status === 'allin');
+  }
+
   _resetBettingRound() {
     for (const p of this.players) {
       if (!p) continue;
@@ -221,6 +228,7 @@ class PokerEngine {
     this.currentBet = 0;
     this.lastRaiseSize = this.bigBlind;
     this.actionLog = [];
+    this.revealAllHoleCards = false;
 
     // 移动庄位
     const nextDealer = this._findNextSeat(this.dealerIndex, (p) => p && p.status !== 'out');
@@ -343,6 +351,7 @@ class PokerEngine {
   getPlayerView(viewerPlayerId) {
     const viewer = this._getPlayerById(viewerPlayerId);
     const derivedState = this._getDerivedTableState();
+    const showAllHoleCards = this._isAllInShowdown() || (this.stage === 'hand_over' && this.revealAllHoleCards);
 
     const players = this.players.map((p) => {
       if (!p) return null;
@@ -364,7 +373,13 @@ class PokerEngine {
         };
       }
 
-      // 他人手牌隐藏
+      if (showAllHoleCards) {
+        return {
+          ...base,
+          hole: clone(p.hole),
+        };
+      }
+
       return {
         ...base,
         hole: p.hole && p.hole.length === 2 && this.status === 'in_hand' ? [{ hidden: true }, { hidden: true }] : [],
@@ -650,6 +665,10 @@ class PokerEngine {
   }
 
   _afterActionAdvanceIfNeeded() {
+    if (this._isAllInShowdown()) {
+      this.revealAllHoleCards = true;
+    }
+
     if (this._checkEarlyWin()) return;
 
     if (this._isBettingRoundComplete()) {
@@ -794,7 +813,7 @@ class PokerEngine {
 
     for (const p of this.players) {
       if (!p) continue;
-      p.hole = [];
+      if (!this.revealAllHoleCards) p.hole = [];
       p.betInRound = 0;
       p.contributed = 0;
       p.hasActed = false;
@@ -802,7 +821,7 @@ class PokerEngine {
       else p.status = 'waiting';
     }
 
-    this.community = [];
+    if (!this.revealAllHoleCards) this.community = [];
     this.deck = [];
     this.pot = 0;
     this.currentBet = 0;
