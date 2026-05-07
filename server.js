@@ -152,7 +152,7 @@ function listRooms() {
       id: r.id,
       name: r.name,
       createdAt: r.createdAt,
-      players: snapshot.players.filter(Boolean).length,
+      players: r.engine.getPlayerCount(),
       maxPlayers: snapshot.maxPlayers,
       status: snapshot.status,
       handId: snapshot.handId,
