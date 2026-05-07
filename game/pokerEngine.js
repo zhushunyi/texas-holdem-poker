@@ -730,9 +730,22 @@ class PokerEngine {
     const { done } = this._dealNextCommunityCards();
     if (done) return;
 
-    // 新一轮行动：从庄家左手边开始
+    // 翻牌后行动顺序：SB 先、BB 后（单挑时同样 SB 先行动）
+    // 多人局：SB 在庄家左边，从庄家后找即先到 SB
+    // 单挑：dealer === sbIndex，从 sbIndex 本身开始找（包含自己）
     this._resetActFlagsForNewRound();
-    this.turnIndex = this._findNextSeat(this.dealerIndex, (p) => isEligibleToAct(p));
+    const activeCount = this.players.filter((p) => p && p.status !== 'out').length;
+    if (activeCount === 2) {
+      // 单挑：直接从 SB 开始
+      if (isEligibleToAct(this.players[this.sbIndex])) {
+        this.turnIndex = this.sbIndex;
+      } else {
+        this.turnIndex = this._findNextSeat(this.sbIndex, (p) => isEligibleToAct(p));
+      }
+    } else {
+      // 多人局：从庄家左手边（即 SB）开始
+      this.turnIndex = this._findNextSeat(this.dealerIndex, (p) => isEligibleToAct(p));
+    }
 
     // 若无人可行动（全押），直接补全到摊牌
     if (this.turnIndex === -1) {
