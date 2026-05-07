@@ -523,7 +523,14 @@ function renderActions(state) {
     note.className = 'muted';
     if (state.status === 'in_hand') {
       const turnPlayer = getTurnPlayer(state);
-      note.textContent = turnPlayer ? `等待 ${turnPlayer.nickname} 行动…` : '等待其他玩家行动…';
+      if (turnPlayer) {
+        note.textContent = `等待 ${turnPlayer.nickname} 行动…`;
+      } else {
+        // turnIndex === -1: all-in showdown，自动逐步发牌中
+        const nonFolded = (state.players || []).filter(p => p && (p.status === 'active' || p.status === 'allin'));
+        const allAllin = nonFolded.length >= 2 && nonFolded.every(p => p.status === 'allin');
+        note.textContent = allAllin ? '🃏 All-in 摊牌中，自动发牌…' : '等待其他玩家行动…';
+      }
     } else if (state.isHost && playableCount < 2) {
       note.textContent = '至少 2 名有筹码玩家即可开始。';
     } else {

@@ -60,6 +60,7 @@ setInterval(() => {
   for (const room of rooms.values()) {
     if (!room.engine || !room.engine.runoutPending) continue;
     if (room.engine.status !== 'in_hand') {
+      console.log(`[runout] room ${room.id}: runoutPending=true but status=${room.engine.status}, clearing`);
       room.engine.runoutPending = false;
       continue;
     }
@@ -67,11 +68,14 @@ setInterval(() => {
     if (room.lastRunoutAt && now - room.lastRunoutAt < ALL_IN_RUNOUT_INTERVAL_MS - 50) continue;
 
     room.lastRunoutAt = now;
+    console.log(`[runout] room ${room.id}: dealing card, community=${room.engine.community.length}, stage=${room.engine.stage}`);
     try {
-      room.engine.runOneMoreCommunityCard();
+      const result = room.engine.runOneMoreCommunityCard();
+      console.log(`[runout] room ${room.id}: done=${result.done}, community=${room.engine.community.length}, stage=${room.engine.stage}, runoutPending=${room.engine.runoutPending}`);
       broadcastRoomState(room);
       emitRoomList();
     } catch (e) {
+      console.error(`[runout] room ${room.id}: ERROR`, e.message);
       room.engine.runoutPending = false;
     }
   }
@@ -229,6 +233,11 @@ io.on('connection', (socket) => {
 
       const room = getRoomOrThrow(roomId);
       room.engine.applyAction(playerId, payload);
+
+      if (room.engine.runoutPending) {
+        console.log(`[action] room ${roomId}: runoutPending=true after action, community=${room.engine.community.length}, stage=${room.engine.stage}`);
+      }
+
       broadcastRoomState(room);
       emitRoomList();
     } catch (err) {
