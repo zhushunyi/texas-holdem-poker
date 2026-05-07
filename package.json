@@ -5,8 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "build": "npm install --omit=dev"
+    "dev": "node server.js"
   },
   "engines": {
     "node": ">=18"
