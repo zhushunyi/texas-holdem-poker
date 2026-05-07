@@ -4,7 +4,7 @@
   "description": "多人在线德州扑克（Texas Hold'em Poker） - Node.js + Express + Socket.io",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "npm install && node server.js",
     "dev": "node server.js"
   },
   "engines": {
