@@ -40,6 +40,10 @@ const io = new Server(server, {
  */
 const rooms = new Map();
 
+/** 断线延迟清理：socketId -> timeout handle（30s 后才真正 removePlayer） */
+const disconnectTimers = new Map();
+const DISCONNECT_GRACE_MS = 30 * 1000;
+
 function clearRoomTurnTimer(room) {
   if (!room) return;
   if (room.actionTimer) {
@@ -271,13 +275,52 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('room:join', ({ nickname, roomId }) => {
+  socket.on('room:join', ({ nickname, roomId, playerId: storedPlayerId }) => {
     try {
       nickname = String(nickname || '').trim().slice(0, 16);
       roomId = String(roomId || '').trim();
       if (!nickname) throw new Error('请输入昵称');
       if (!roomId) throw new Error('房间ID无效');
 
+      // 取消该 socket 之前的延迟清理（如果存在）
+      const pending = disconnectTimers.get(socket.id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        disconnectTimers.delete(socket.id);
+      }
+
+      // 尝试重连：如果房间存在且玩家仍在，直接恢复会话
+      const room = rooms.get(roomId);
+      if (room) {
+        const rejoin = room.engine.reconnectPlayer({
+          socketId: socket.id,
+          nickname,
+          playerId: storedPlayerId || '',
+        });
+        if (rejoin) {
+          socket.data.nickname = nickname;
+          socket.data.roomId = roomId;
+          socket.data.playerId = rejoin.playerId;
+          socket.leave('lobby');
+          socket.join(`room:${roomId}`);
+          if (!room.hostSocketId || !io.sockets.sockets.get(room.hostSocketId)) {
+            room.hostSocketId = socket.id;
+          }
+          broadcastRoomState(room);
+          socket.emit('room:joined', {
+            roomId,
+            roomName: room.name,
+            playerId: rejoin.playerId,
+            seatIndex: rejoin.seatIndex,
+            isHost: room.hostSocketId === socket.id,
+            reconnected: true,
+          });
+          emitRoomList();
+          return;
+        }
+      }
+
+      // 正常加入（新玩家）
       joinRoomInternal(socket, roomId, nickname);
       emitRoomList();
     } catch (err) {
@@ -326,7 +369,17 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    safeLeaveRoom(socket, { disconnected: true });
+    // 延迟 30s 再真正移除，留出重连窗口
+    const roomId = socket.data.roomId;
+    const playerId = socket.data.playerId;
+    if (roomId && playerId) {
+      const timer = setTimeout(() => {
+        disconnectTimers.delete(socket.id);
+        safeLeaveRoom(socket, { disconnected: true });
+        emitRoomList();
+      }, DISCONNECT_GRACE_MS);
+      disconnectTimers.set(socket.id, { timer, roomId, playerId, nickname: socket.data.nickname });
+    }
     emitRoomList();
   });
 });

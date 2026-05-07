@@ -76,6 +76,25 @@ class PokerEngine {
     return p ? p.socketId : '';
   }
 
+  /**
+   * 重连：用新的 socketId 更新已有玩家的连接信息（昵称匹配或 playerId 匹配）。
+   * 返回 { playerId, seatIndex } 或 null（找不到）。
+   */
+  reconnectPlayer({ socketId, nickname, playerId }) {
+    let p = null;
+    if (playerId) {
+      p = this.players.find((x) => x && x.id === playerId) || null;
+    }
+    if (!p && nickname) {
+      // 按昵称兜底匹配
+      p = this.players.find((x) => x && x.nickname === nickname) || null;
+    }
+    if (!p) return null;
+    p.socketId = socketId;
+    this._pushLog(`玩家 ${p.nickname} 重新连接`);
+    return { playerId: p.id, seatIndex: p.seatIndex };
+  }
+
   addPlayer({ socketId, nickname }) {
     const seatIndex = this.players.findIndex((p) => p === null);
     if (seatIndex === -1) throw new Error('房间已满');

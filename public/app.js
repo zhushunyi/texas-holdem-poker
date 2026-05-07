@@ -53,6 +53,7 @@ const toastEl = document.getElementById('toast');
 let myNickname = localStorage.getItem('poker:nickname') || '';
 let currentRoomId = '';
 let currentRoomName = '';
+let myPlayerId = '';
 let mySeatIndex = -1;
 let lastState = null;
 let turnTicker = null;
@@ -104,6 +105,7 @@ function resetDealAnimationState() {
 function switchToLobby() {
   currentRoomId = '';
   currentRoomName = '';
+  myPlayerId = '';
   mySeatIndex = -1;
   lastState = null;
   resetDealAnimationState();
@@ -660,8 +662,18 @@ function renderRoomList(rooms) {
 // Events
 socket.on('connect', () => {
   setConnected(true);
-  socket.emit('lobby:join');
   if (myNickname) userPill.textContent = myNickname;
+
+  // 如果之前在房间里（断线重连），自动重新加入
+  if (currentRoomId && myNickname) {
+    socket.emit('room:join', {
+      nickname: myNickname,
+      roomId: currentRoomId,
+      playerId: myPlayerId,
+    });
+  } else {
+    socket.emit('lobby:join');
+  }
 });
 
 socket.on('disconnect', () => {
@@ -678,11 +690,16 @@ socket.on('lobby:roomList', (rooms) => {
 
 socket.on('room:joined', (info) => {
   currentRoomId = info.roomId;
+  myPlayerId = info.playerId || '';
   mySeatIndex = info.seatIndex;
   currentRoomName = info.roomName;
   resetDealAnimationState();
   switchToRoom();
-  showToast(info.isHost ? '你是房主，满 2 人即可开始' : '已加入房间');
+  if (info.reconnected) {
+    showToast('重新连接成功');
+  } else {
+    showToast(info.isHost ? '你是房主，满 2 人即可开始' : '已加入房间');
+  }
 });
 
 socket.on('room:state', (state) => {
