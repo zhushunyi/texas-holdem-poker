@@ -56,6 +56,8 @@ class PokerEngine {
     this._derivedStateCache = null;
     this.revealAllHoleCards = false;
     this.runoutPending = false; // all-in runout 逐步发牌标志
+    this.gameOver = false;      // 游戏是否结束（某人破产淘汰到最后只剩1人）
+    this.gameWinner = null;     // 游戏胜者昵称
 
     this._resetBettingRound();
   }
@@ -181,6 +183,7 @@ class PokerEngine {
 
   startGameIfPossible() {
     if (this.status === 'in_hand') throw new Error('牌局进行中');
+    if (this.gameOver) throw new Error('游戏已结束');
     const seated = this.players.filter(Boolean);
     const canPlay = seated.filter((p) => p.chips > 0).length;
     if (canPlay < 2) throw new Error('至少需要 2 位有筹码的玩家');
@@ -440,6 +443,9 @@ class PokerEngine {
       showPots: derivedState.showPots,
 
       actionLog: clone(this.actionLog),
+
+      gameOver: this.gameOver || false,
+      gameWinner: this.gameWinner || null,
 
       you: viewer
         ? {
@@ -867,7 +873,7 @@ class PokerEngine {
     this.currentBet = 0;
     this.turnIndex = -1;
 
-    this._pushLog('本手结束，等待房主开始下一手');
+    this._pushLog('本手结束，即将自动开始下一手…');
   }
 }
 

@@ -129,7 +129,7 @@ function stageText(stage) {
     turn: '转牌',
     river: '河牌',
     showdown: '摊牌',
-    hand_over: '本手结束',
+    hand_over: '本手结束，自动开始下一手…',
   };
   return map[stage] || stage;
 }
@@ -447,10 +447,14 @@ function renderLog(state) {
 
 function renderTopLabels(state) {
   potLabel.textContent = `总底池 ${state.pot || 0}`;
-  stageLabel.textContent = stageText(state.stage);
+  stageLabel.textContent = state.gameOver ? `🏆 游戏结束` : stageText(state.stage);
 
-  const statusText = state.status === 'in_hand' ? `进行中 · 手牌 #${state.handId}` : `等待中 · 手牌 #${state.handId}`;
-  roomSub.textContent = `${statusText} · 小盲/大盲 ${state.smallBlind}/${state.bigBlind} · 房主满 2 人即可开始`;
+  if (state.gameOver) {
+    roomSub.textContent = `🎉 冠军：${state.gameWinner || '（无）'} · 手牌 #${state.handId} · 小盲/大盲 ${state.smallBlind}/${state.bigBlind}`;
+  } else {
+    const statusText = state.status === 'in_hand' ? `进行中 · 手牌 #${state.handId}` : `等待中 · 手牌 #${state.handId}`;
+    roomSub.textContent = `${statusText} · 小盲/大盲 ${state.smallBlind}/${state.bigBlind} · 最后一人破产即结束`;
+  }
 }
 
 function updateTurnTimerDisplay(state = lastState) {
@@ -506,22 +510,39 @@ function renderActions(state) {
   betBox.style.display = 'none';
 
   const playableCount = getPlayableCount(state);
-  const canStartHand = state.isHost && state.status !== 'in_hand' && playableCount >= 2;
+  // gameOver 时不允许开始；第一手（handId===0）或游戏结束后允许房主重新开始
+  const isFirstHand = state.handId === 0;
+  const canStartHand = state.isHost && !state.gameOver && state.status !== 'in_hand' && playableCount >= 2 && isFirstHand;
   startHandBtn.disabled = !canStartHand;
-  if (!state.isHost) {
-    startHandBtn.textContent = '等待房主开始';
+  startHandBtn.style.display = state.gameOver ? 'none' : '';
+
+  if (state.gameOver) {
+    startHandBtn.style.display = 'none';
+  } else if (!state.isHost) {
+    startHandBtn.textContent = isFirstHand ? '等待房主开始' : '';
+    startHandBtn.style.display = isFirstHand ? '' : 'none';
   } else if (state.status === 'in_hand') {
     startHandBtn.textContent = '牌局进行中';
-  } else if (playableCount < 2) {
+    startHandBtn.style.display = 'none'; // 进行中隐藏
+  } else if (isFirstHand && playableCount >= 2) {
+    startHandBtn.textContent = '开始游戏（2人即可）';
+    startHandBtn.style.display = '';
+  } else if (isFirstHand) {
     startHandBtn.textContent = '至少 2 人可开局';
+    startHandBtn.style.display = '';
   } else {
-    startHandBtn.textContent = '开始一手（2人即可）';
+    // 非第一手且非 in_hand：自动开始中，不展示按钮
+    startHandBtn.style.display = 'none';
   }
 
   if (!you || !you.canAct) {
     const note = document.createElement('div');
     note.className = 'muted';
-    if (state.status === 'in_hand') {
+    if (state.gameOver) {
+      note.textContent = `🏆 游戏结束！冠军：${state.gameWinner || '（无）'}`;
+      note.style.fontSize = '1.1em';
+      note.style.color = '#fbbf24';
+    } else if (state.status === 'in_hand') {
       const turnPlayer = getTurnPlayer(state);
       if (turnPlayer) {
         note.textContent = `等待 ${turnPlayer.nickname} 行动…`;
@@ -531,10 +552,12 @@ function renderActions(state) {
         const allAllin = nonFolded.length >= 2 && nonFolded.every(p => p.status === 'allin');
         note.textContent = allAllin ? '🃏 All-in 摊牌中，自动发牌…' : '等待其他玩家行动…';
       }
-    } else if (state.isHost && playableCount < 2) {
+    } else if (state.isHost && !state.gameOver && playableCount < 2) {
       note.textContent = '至少 2 名有筹码玩家即可开始。';
-    } else {
-      note.textContent = '等待房主开始…（满 2 人即可）';
+    } else if (!state.gameOver && state.handId === 0) {
+      note.textContent = '等待房主开始游戏…（满 2 人即可）';
+    } else if (!state.gameOver) {
+      note.textContent = '下一手即将自动开始…';
     }
     btnRow.appendChild(note);
     return;

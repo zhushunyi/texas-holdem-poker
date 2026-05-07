@@ -9,6 +9,7 @@ const { PokerEngine } = require('./game/pokerEngine');
 const PORT = process.env.PORT || 3000;
 const TURN_DURATION_MS = 30 * 1000;
 const ALL_IN_RUNOUT_DELAY_MS = 1500;
+const AUTO_NEXT_HAND_DELAY_MS = 4000; // 每手结束后自动开始下一手的延迟
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -34,6 +35,7 @@ const io = new Server(server, {
  *   turnDeadlineAt: number,
  *   turnTimerKey: string,
  *   runoutTimerKey: string,   // handId:community.length，防止重复调度
+ *   nextHandTimer: timeout handle | null,  // 自动开始下一手的定时器
  * }
  */
 const rooms = new Map();
@@ -55,6 +57,56 @@ function clearRoomAllInRunoutTimer(room) {
     room.allInRunoutTimer = null;
   }
   room.runoutTimerKey = '';
+}
+
+function clearNextHandTimer(room) {
+  if (!room) return;
+  if (room.nextHandTimer) {
+    clearTimeout(room.nextHandTimer);
+    room.nextHandTimer = null;
+  }
+}
+
+/**
+ * 检查是否游戏结束（只剩1名有筹码玩家），若未结束则自动开始下一手。
+ * 在每手 hand_over 后调用。
+ */
+function scheduleNextHandOrGameOver(room) {
+  clearNextHandTimer(room);
+
+  const engine = room.engine;
+  const playersWithChips = engine.players.filter((p) => p && p.chips > 0);
+
+  if (playersWithChips.length <= 1) {
+    // 游戏结束
+    const winner = playersWithChips[0];
+    const winnerName = winner ? winner.nickname : '（无）';
+    console.log(`[game] room ${room.id}: game over, winner=${winnerName}`);
+    engine.gameOver = true;
+    engine.gameWinner = winnerName;
+    broadcastRoomState(room);
+    emitRoomList();
+    return;
+  }
+
+  // 还有多人，延迟后自动开始下一手
+  console.log(`[game] room ${room.id}: scheduling next hand in ${AUTO_NEXT_HAND_DELAY_MS}ms`);
+  room.nextHandTimer = setTimeout(() => {
+    const currentRoom = rooms.get(room.id);
+    if (!currentRoom) return;
+    if (currentRoom.engine.status === 'in_hand') return; // 已经在进行中（理论上不会）
+    if (currentRoom.engine.gameOver) return; // 游戏已结束
+
+    try {
+      currentRoom.engine.startGameIfPossible();
+      console.log(`[game] room ${currentRoom.id}: auto-started next hand #${currentRoom.engine.handId}`);
+      broadcastRoomState(currentRoom);
+      emitRoomList();
+    } catch (e) {
+      console.error(`[game] room ${currentRoom.id}: auto-start failed`, e.message);
+      broadcastRoomState(currentRoom);
+    }
+  }, AUTO_NEXT_HAND_DELAY_MS);
 }
 
 /**
@@ -203,6 +255,7 @@ io.on('connection', (socket) => {
         hostSocketId: socket.id,
         actionTimer: null,
         allInRunoutTimer: null,
+        nextHandTimer: null,
         turnDeadlineAt: 0,
         turnTimerKey: '',
         runoutTimerKey: '',
@@ -328,6 +381,7 @@ function safeLeaveRoom(socket, opts = {}) {
     if (room.engine.getPlayerCount() === 0) {
       clearRoomTurnTimer(room);
       clearRoomAllInRunoutTimer(room);
+      clearNextHandTimer(room);
       rooms.delete(roomId);
     } else {
       broadcastRoomState(room);
@@ -349,6 +403,11 @@ function broadcastRoomState(room) {
   // 如果有待 runout 的牌，调度下一张（幂等，重复调用安全）
   if (engine.runoutPending && engine.status === 'in_hand') {
     scheduleNextRunoutCard(room);
+  }
+
+  // 每手结束后，自动开始下一手（或宣布游戏结束）
+  if (engine.status === 'hand_over' && !engine.gameOver) {
+    scheduleNextHandOrGameOver(room);
   }
 
   // 给每个玩家单独发一份"可见状态"（隐藏他人手牌）
