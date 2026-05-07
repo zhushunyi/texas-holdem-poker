@@ -338,8 +338,11 @@ class PokerEngine {
     }
 
     const pots = buildSidePots(this.players);
-    const nonFoldedCount = this.players.filter(p => p && (p.status === 'active' || p.status === 'allin')).length;
-    const shouldShowWinRates = this.status === 'in_hand' && this.community.length >= 3 && nonFoldedCount === 2;
+    // 胜率只在"单挑 all-in 跑马"时显示：正好 2 名玩家都是 allin 且翻牌后
+    const nonFoldedPlayers = this.players.filter(p => p && (p.status === 'active' || p.status === 'allin'));
+    const nonFoldedCount = nonFoldedPlayers.length;
+    const allInRunout = nonFoldedCount === 2 && nonFoldedPlayers.every(p => p.status === 'allin');
+    const shouldShowWinRates = this.status === 'in_hand' && this.community.length >= 3 && allInRunout;
     const winRateMap = shouldShowWinRates ? calculateStageEquities(this.players, this.community, pots) : {};
     const derivedState = {
       pots,
