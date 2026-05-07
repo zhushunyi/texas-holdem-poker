@@ -885,12 +885,14 @@ class PokerEngine {
       p.chips += amt;
     }
 
+    // 普通摊牌（跟牌到底）时也需要展示所有玩家手牌
+    this.revealAllHoleCards = true;
     this._endHand();
   }
 
   _endHand() {
     this.stage = 'hand_over';
-    this.status = 'waiting';
+    this.status = 'hand_over';  // server.js 依赖此值触发 scheduleNextHandOrGameOver
 
     for (const p of this.players) {
       if (!p) continue;
