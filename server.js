@@ -8,6 +8,7 @@ const { PokerEngine } = require('./game/pokerEngine');
 
 const PORT = process.env.PORT || 3000;
 const TURN_DURATION_MS = 30 * 1000;
+const ALL_IN_RUNOUT_DELAY_MS = 1500;
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -40,6 +41,30 @@ function clearRoomTurnTimer(room) {
   }
   room.turnDeadlineAt = 0;
   room.turnTimerKey = '';
+}
+
+function clearRoomAllInRunoutTimer(room) {
+  if (!room) return;
+  if (room.allInRunoutTimer) {
+    clearTimeout(room.allInRunoutTimer);
+    room.allInRunoutTimer = null;
+  }
+}
+
+function scheduleAllInRunout(room) {
+  if (!room || !room.engine || room.allInRunoutTimer || !room.engine.needsRunout()) return;
+
+  clearRoomTurnTimer(room);
+  room.allInRunoutTimer = setTimeout(() => {
+    room.allInRunoutTimer = null;
+
+    const currentRoom = rooms.get(room.id);
+    if (!currentRoom || !currentRoom.engine || !currentRoom.engine.needsRunout()) return;
+
+    currentRoom.engine.runOneMoreCommunityCard();
+    broadcastRoomState(currentRoom);
+    emitRoomList();
+  }, ALL_IN_RUNOUT_DELAY_MS);
 }
 
 function syncRoomTurnTimer(room) {
@@ -136,6 +161,7 @@ io.on('connection', (socket) => {
         engine,
         hostSocketId: socket.id,
         actionTimer: null,
+        allInRunoutTimer: null,
         turnDeadlineAt: 0,
         turnTimerKey: '',
       };
@@ -254,6 +280,7 @@ function safeLeaveRoom(socket, opts = {}) {
     // 房间空了就关闭
     if (room.engine.getPlayerCount() === 0) {
       clearRoomTurnTimer(room);
+      clearRoomAllInRunoutTimer(room);
       rooms.delete(roomId);
     } else {
       broadcastRoomState(room);
@@ -271,6 +298,11 @@ function broadcastRoomState(room) {
   const engine = room.engine;
 
   syncRoomTurnTimer(room);
+  if (engine.needsRunout()) {
+    scheduleAllInRunout(room);
+  } else {
+    clearRoomAllInRunoutTimer(room);
+  }
 
   // 给每个玩家单独发一份“可见状态”（隐藏他人手牌）
   const socketsInRoom = io.sockets.adapter.rooms.get(`room:${roomId}`);

@@ -155,11 +155,24 @@ class PokerEngine {
     return activePlayers.length >= 2 && activePlayers.every((player) => player.status === 'allin');
   }
 
+  needsRunout() {
+    return this.status === 'in_hand' && this.turnIndex === -1 && this._isAllInShowdown();
+  }
+
   _resetBettingRound() {
     for (const p of this.players) {
       if (!p) continue;
       p.betInRound = 0;
       p.hasActed = false;
+    }
+    this.currentBet = 0;
+    this.lastRaiseSize = this.bigBlind;
+  }
+
+  _clearBetsForNextStage() {
+    for (const p of this.players) {
+      if (!p) continue;
+      p.betInRound = 0;
     }
     this.currentBet = 0;
     this.lastRaiseSize = this.bigBlind;
@@ -234,9 +247,14 @@ class PokerEngine {
     const nextDealer = this._findNextSeat(this.dealerIndex, (p) => p && p.status !== 'out');
     this.dealerIndex = nextDealer;
 
-    // 小盲 / 大盲
-    this.sbIndex = this._findNextSeat(this.dealerIndex, (p) => p && p.status !== 'out');
-    this.bbIndex = this._findNextSeat(this.sbIndex, (p) => p && p.status !== 'out');
+    // 小盲 / 大盲（单挑时庄家=小盲）
+    if (activeCount === 2) {
+      this.sbIndex = this.dealerIndex;
+      this.bbIndex = this._findNextSeat(this.dealerIndex, (p) => p && p.status !== 'out');
+    } else {
+      this.sbIndex = this._findNextSeat(this.dealerIndex, (p) => p && p.status !== 'out');
+      this.bbIndex = this._findNextSeat(this.sbIndex, (p) => p && p.status !== 'out');
+    }
 
     this._postBlind(this.sbIndex, this.smallBlind, '小盲');
     this._postBlind(this.bbIndex, this.bigBlind, '大盲');
@@ -254,12 +272,18 @@ class PokerEngine {
     this.currentBet = Math.max(...this.players.filter(Boolean).map((p) => p.betInRound));
     this._pushLog(`开始新手牌 #${this.handId}（小盲 ${this.smallBlind} / 大盲 ${this.bigBlind}）`);
 
-    // 轮到 UTG
+    // 翻牌前由 UTG 行动；单挑时由庄家（小盲）先行动
     this._resetActFlagsForNewRound();
-    this.turnIndex = this._findNextSeat(this.bbIndex, (p) => isEligibleToAct(p));
+    if (activeCount === 2 && isEligibleToAct(this.players[this.sbIndex])) {
+      this.turnIndex = this.sbIndex;
+    } else if (activeCount === 2) {
+      this.turnIndex = this._findNextSeat(this.sbIndex, (p) => isEligibleToAct(p));
+    } else {
+      this.turnIndex = this._findNextSeat(this.bbIndex, (p) => isEligibleToAct(p));
+    }
     if (this.turnIndex === -1) {
       // 可能大家都all-in，直接发公共牌到摊牌
-      this._runoutToShowdown();
+      this._runoutToShowdownInstant();
     }
   }
 
@@ -665,48 +689,32 @@ class PokerEngine {
   }
 
   _afterActionAdvanceIfNeeded() {
-    if (this._isAllInShowdown()) {
+    const allInShowdown = this._isAllInShowdown();
+    if (allInShowdown) {
       this.revealAllHoleCards = true;
     }
 
-    if (this._checkEarlyWin()) return;
+    if (this._checkEarlyWin()) return { allInRunout: false };
 
     if (this._isBettingRoundComplete()) {
-      this._advanceStage();
-    } else {
-      // 如果找不到可行动玩家，直接跑到摊牌
-      if (this.turnIndex === -1) {
-        this._runoutToShowdown();
+      if (allInShowdown) {
+        this.turnIndex = -1;
+        return { allInRunout: true };
       }
+      this._advanceStage();
+      return { allInRunout: false };
     }
+
+    if (this.turnIndex === -1) {
+      this._runoutToShowdownInstant();
+    }
+
+    return { allInRunout: false };
   }
 
   _advanceStage() {
-    // 进入下一阶段前：把本轮下注清零（但contributed已经累积）
-    for (const p of this.players) {
-      if (!p) continue;
-      p.betInRound = 0;
-    }
-    this.currentBet = 0;
-    this.lastRaiseSize = this.bigBlind;
-
-    if (this.stage === 'preflop') {
-      this.stage = 'flop';
-      this.community.push(this.deck.pop(), this.deck.pop(), this.deck.pop());
-      this._pushLog('翻牌');
-    } else if (this.stage === 'flop') {
-      this.stage = 'turn';
-      this.community.push(this.deck.pop());
-      this._pushLog('转牌');
-    } else if (this.stage === 'turn') {
-      this.stage = 'river';
-      this.community.push(this.deck.pop());
-      this._pushLog('河牌');
-    } else if (this.stage === 'river') {
-      this.stage = 'showdown';
-      this._doShowdown();
-      return;
-    }
+    const { done } = this._dealNextCommunityCards();
+    if (done) return;
 
     // 新一轮行动：从庄家左手边开始
     this._resetActFlagsForNewRound();
@@ -714,31 +722,52 @@ class PokerEngine {
 
     // 若无人可行动（全押），直接补全到摊牌
     if (this.turnIndex === -1) {
-      this._runoutToShowdown();
-      return;
+      this._runoutToShowdownInstant();
     }
   }
 
-  _runoutToShowdown() {
-    // 补全公共牌到river
-    if (this.stage === 'preflop') {
+  _dealNextCommunityCards({ automatic = false } = {}) {
+    this._clearBetsForNextStage();
+
+    if (this.community.length < 3) {
       this.community.push(this.deck.pop(), this.deck.pop(), this.deck.pop());
       this.stage = 'flop';
-      this._pushLog('翻牌（自动发牌）');
+      this._pushLog(automatic ? '翻牌（自动发牌）' : '翻牌');
+      return { stage: this.stage, done: false };
     }
-    if (this.stage === 'flop') {
+
+    if (this.community.length === 3) {
       this.community.push(this.deck.pop());
       this.stage = 'turn';
-      this._pushLog('转牌（自动发牌）');
+      this._pushLog(automatic ? '转牌（自动发牌）' : '转牌');
+      return { stage: this.stage, done: false };
     }
-    if (this.stage === 'turn') {
+
+    if (this.community.length === 4) {
       this.community.push(this.deck.pop());
       this.stage = 'river';
-      this._pushLog('河牌（自动发牌）');
+      this._pushLog(automatic ? '河牌（自动发牌）' : '河牌');
+      return { stage: this.stage, done: false };
     }
 
     this.stage = 'showdown';
     this._doShowdown();
+    return { stage: this.stage, done: true };
+  }
+
+  runOneMoreCommunityCard() {
+    return this._dealNextCommunityCards();
+  }
+
+  _runoutToShowdownInstant() {
+    while (this.status === 'in_hand' && this.community.length < 5) {
+      this._dealNextCommunityCards({ automatic: true });
+    }
+
+    if (this.status === 'in_hand') {
+      this.stage = 'showdown';
+      this._doShowdown();
+    }
   }
 
   _buildSidePots() {
