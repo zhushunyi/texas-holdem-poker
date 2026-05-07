@@ -333,7 +333,8 @@ class PokerEngine {
     }
 
     const pots = buildSidePots(this.players);
-    const shouldShowWinRates = this.status === 'in_hand' && this.community.length >= 3;
+    const nonFoldedCount = this.players.filter(p => p && (p.status === 'active' || p.status === 'allin')).length;
+    const shouldShowWinRates = this.status === 'in_hand' && this.community.length >= 3 && nonFoldedCount === 2;
     const winRateMap = shouldShowWinRates ? calculateStageEquities(this.players, this.community, pots) : {};
     const derivedState = {
       pots,

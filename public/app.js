@@ -340,7 +340,8 @@ function renderSeats(state) {
     const badge = statusBadge(player.status);
     badges.push(`<span class="badge ${badge.cls}">${badge.text}</span>`);
 
-    const winRateLine = Number.isFinite(player.winRate)
+    const nonFoldedCount = (state.players || []).filter(p => p && (p.status === 'active' || p.status === 'allin')).length;
+    const winRateLine = (nonFoldedCount === 2 && (state.community || []).length >= 3 && Number.isFinite(player.winRate))
       ? `<div class="seat__equity">实时胜率 ${formatPercent(player.winRate)}</div>`
       : '';
     const timerLine = isTurnSeat && state.turnDeadlineAt
@@ -409,7 +410,9 @@ function renderYou(state) {
 
   const me = state.players[state.you.seatIndex];
   const hand = me && Array.isArray(me.hole) ? me.hole : [];
-  const winRateText = Number.isFinite(state.you.winRate) ? ` · 胜率 ${formatPercent(state.you.winRate)}` : '';
+  const nonFoldedCount = (state.players || []).filter(p => p && (p.status === 'active' || p.status === 'allin')).length;
+  const showWinRate = nonFoldedCount === 2 && (state.community || []).length >= 3;
+  const winRateText = (showWinRate && Number.isFinite(state.you.winRate)) ? ` · 胜率 ${formatPercent(state.you.winRate)}` : '';
   const nextHandKey = cardsSignature(hand);
   const previousHand = lastState && lastState.players && lastState.players[state.you.seatIndex]
     ? lastState.players[state.you.seatIndex].hole || []
