@@ -102,6 +102,7 @@ function scheduleNextRunoutCard(room) {
       // broadcastRoomState 内部会再次调用 scheduleNextRunoutCard（如果仍有牌要发）
     } catch (e) {
       console.error(`[runout] room ${currentRoom.id}: ERROR`, e.message);
+      console.error(`[runout] stack:`, e.stack);
       currentRoom.engine.runoutPending = false;
     }
   }, ALL_IN_RUNOUT_DELAY_MS);
